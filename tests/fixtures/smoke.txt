@@ -1,0 +1,4 @@
+Smoke test
+
+* literal markdown
+Türkçe: İ ı Ş ş Ğ ğ Ç ç Ö ö Ü ü
