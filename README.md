@@ -50,3 +50,7 @@ src-tauri/capabilities/   Narrow main-window permissions
 tests/fixtures/           Local test documents
 docs/implement.md         Full implementation specification
 ```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
