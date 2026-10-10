@@ -10,14 +10,15 @@ Working end to end:
 
 - Tauri 2 desktop shell with a narrow command capability.
 - Backend-owned native file selection and opaque input/result tickets.
-- Pure-Rust TXT, Markdown, CSV, TSV, JSON, and XML conversion.
+- Pure-Rust TXT, Markdown, CSV, TSV, JSON, XML, and PDF conversion.
 - Strict UTF-8 decoding, LF normalization, deterministic final newline, and plain-text Markdown escaping.
 - CSV/TSV table generation, wide-row sections, ragged-row warnings, JSON/XML validation, dynamic fences, and XML DTD rejection.
+- PDF page-ordered text extraction with `<!-- page N -->` markers, `PDF_LAYOUT_BEST_EFFORT` and `PAGE_TEXT_MISSING` warnings, `OCR_REQUIRED` for textless input, and `PASSWORD_PROTECTED` for encrypted input.
 - Queue, conversion action, safe rendered preview, and user-selected export directory.
 - No-overwrite export naming (`name.md`, `name (2).md`, ...).
 - React workflow test, Rust conversion tests, registry tests, and capability regression test.
 
-Not implemented yet: HTML, DOCX, XLSX, PDF, batch scheduling/cancellation, complete format options, installer signing, SBOM, and optional OCR.
+Not implemented yet: HTML, DOCX, XLSX, batch scheduling/cancellation, complete format options, installer signing, SBOM, and optional OCR.
 
 ## Prerequisites
 

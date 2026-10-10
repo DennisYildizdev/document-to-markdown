@@ -12,6 +12,7 @@ pub enum InputFormat {
     Tsv,
     Json,
     Xml,
+    Pdf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +42,10 @@ pub enum ConversionError {
     InvalidEncoding,
     #[error("document syntax is malformed: {0}")]
     MalformedDocument(String),
+    #[error("PDF contains no usable text; local OCR is required")]
+    OcrRequired,
+    #[error("document is password protected; password entry is not supported")]
+    PasswordProtected,
 }
 
 impl ConversionError {
@@ -49,6 +54,8 @@ impl ConversionError {
         match self {
             Self::InvalidEncoding => "INVALID_ENCODING",
             Self::MalformedDocument(_) => "MALFORMED_DOCUMENT",
+            Self::OcrRequired => "OCR_REQUIRED",
+            Self::PasswordProtected => "PASSWORD_PROTECTED",
         }
     }
 }
@@ -57,6 +64,14 @@ pub fn convert_bytes(
     format: InputFormat,
     input: &[u8],
 ) -> Result<ConversionOutput, ConversionError> {
+    if format == InputFormat::Pdf {
+        let (markdown, diagnostics) = render_pdf(input)?;
+        return Ok(ConversionOutput {
+            markdown: with_final_newline(markdown),
+            diagnostics,
+        });
+    }
+
     let source = std::str::from_utf8(input).map_err(|_| ConversionError::InvalidEncoding)?;
     let normalized = normalize_line_endings(source);
     let (markdown, diagnostics) = match format {
@@ -66,12 +81,47 @@ pub fn convert_bytes(
         InputFormat::Tsv => render_delimited(&normalized, b'\t')?,
         InputFormat::Json => render_json(&normalized)?,
         InputFormat::Xml => render_xml(&normalized)?,
+        InputFormat::Pdf => unreachable!("PDF is handled before text decoding"),
     };
 
     Ok(ConversionOutput {
         markdown: with_final_newline(markdown),
         diagnostics,
     })
+}
+
+fn render_pdf(input: &[u8]) -> Result<(String, Vec<Diagnostic>), ConversionError> {
+    let pages =
+        pdf_extract::extract_text_from_mem_by_pages(input).map_err(|error| match error {
+            pdf_extract::OutputError::PdfError(pdf_extract::Error::Decryption(_)) => {
+                ConversionError::PasswordProtected
+            }
+            other => ConversionError::MalformedDocument(other.to_string()),
+        })?;
+    if pages.iter().all(|page| page.trim().is_empty()) {
+        return Err(ConversionError::OcrRequired);
+    }
+    let mut markdown = String::new();
+    let mut diagnostics = vec![Diagnostic {
+        code: "PDF_LAYOUT_BEST_EFFORT".to_owned(),
+        severity: DiagnosticSeverity::Warning,
+        message: "PDF text order and layout reconstruction are best effort.".to_owned(),
+    }];
+    for (index, page) in pages.iter().enumerate() {
+        markdown.push_str(&format!("<!-- page {} -->\n", index + 1));
+        if page.trim().is_empty() {
+            markdown.push_str("[No usable text extracted from this page.]");
+            diagnostics.push(Diagnostic {
+                code: "PAGE_TEXT_MISSING".to_owned(),
+                severity: DiagnosticSeverity::Warning,
+                message: format!("Page {} contains no usable extracted text.", index + 1),
+            });
+        } else {
+            markdown.push_str(page.trim());
+        }
+        markdown.push_str("\n\n");
+    }
+    Ok((markdown, diagnostics))
 }
 
 fn normalize_line_endings(source: &str) -> String {

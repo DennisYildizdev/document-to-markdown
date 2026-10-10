@@ -7,10 +7,12 @@ rust-version.workspace = true
 
 [dependencies]
 csv = "=1.4.0"
+pdf-extract = "=0.12.1"
 quick-xml = "=0.42.0"
 serde.workspace = true
 serde_json = { version = "=1.0.152", features = ["arbitrary_precision"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+lopdf = { version = "=0.42.0", default-features = false }
 pretty_assertions = "1.4.1"

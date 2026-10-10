@@ -14,6 +14,12 @@ edition = "2024"
 name = "document_to_markdown_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Required for production builds: embeds the frontend assets in the binary and
+# serves them over the custom protocol instead of loading `build.devUrl`.
+# Enabled automatically by `tauri build`; plain `cargo build` must opt in.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "=2.7.2", features = [] }
 
@@ -25,5 +31,6 @@ conversion-core = { path = "../crates/conversion-core" }
 rfd = "=0.15.4"
 
 [dev-dependencies]
+lopdf = { version = "=0.42.0", default-features = false }
 tempfile = "=3.23.0"
 

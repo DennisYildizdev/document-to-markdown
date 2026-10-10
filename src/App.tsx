@@ -119,7 +119,7 @@ function App({ backend = tauriBackend }: AppProps) {
             <button className="empty-state" type="button" onClick={addFiles}>
               <FilePlus2 size={26} />
               <strong>Add documents</strong>
-              <span>TXT, Markdown, CSV, TSV, JSON, and XML are available locally.</span>
+              <span>TXT, Markdown, CSV, TSV, JSON, XML, and text-bearing PDF are available locally.</span>
             </button>
           ) : (
             <ul className="file-list">

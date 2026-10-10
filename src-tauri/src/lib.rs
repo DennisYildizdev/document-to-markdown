@@ -12,6 +12,7 @@ use std::{
 use tauri::State;
 
 const MAX_TEXT_INPUT_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_PDF_INPUT_BYTES: u64 = 100 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,10 +96,14 @@ impl Registry {
                     false,
                 ));
             }
-            if metadata.len() > MAX_TEXT_INPUT_BYTES {
+            if metadata.len() > max_input_bytes(format) {
                 return Err(AppError::new(
                     "RESOURCE_LIMIT",
-                    "The selected file exceeds the 20 MiB text limit.",
+                    format!(
+                        "The selected file exceeds the {} MiB limit for {} input.",
+                        max_input_bytes(format) / (1024 * 1024),
+                        format_name(format)
+                    ),
                     false,
                 ));
             }
@@ -221,11 +226,24 @@ fn detect_format(path: &Path) -> Result<InputFormat, AppError> {
         Some("tsv") => Ok(InputFormat::Tsv),
         Some("json") => Ok(InputFormat::Json),
         Some("xml") => Ok(InputFormat::Xml),
+        Some("pdf") => Ok(InputFormat::Pdf),
         _ => Err(AppError::new(
             "UNSUPPORTED_FORMAT",
             "The selected file extension is not enabled in the current implementation slice.",
             false,
         )),
+    }
+}
+
+const fn max_input_bytes(format: InputFormat) -> u64 {
+    match format {
+        InputFormat::Pdf => MAX_PDF_INPUT_BYTES,
+        InputFormat::Text
+        | InputFormat::Markdown
+        | InputFormat::Csv
+        | InputFormat::Tsv
+        | InputFormat::Json
+        | InputFormat::Xml => MAX_TEXT_INPUT_BYTES,
     }
 }
 
@@ -237,6 +255,7 @@ const fn format_name(format: InputFormat) -> &'static str {
         InputFormat::Tsv => "tsv",
         InputFormat::Json => "json",
         InputFormat::Xml => "xml",
+        InputFormat::Pdf => "pdf",
     }
 }
 
@@ -252,7 +271,7 @@ fn internal_error(message: &str) -> AppError {
 fn get_capabilities() -> Capabilities {
     Capabilities {
         protocol_version: 1,
-        formats: vec!["txt", "md", "markdown", "csv", "tsv", "json", "xml"],
+        formats: vec!["txt", "md", "markdown", "csv", "tsv", "json", "xml", "pdf"],
     }
 }
 
@@ -261,7 +280,7 @@ fn pick_inputs(registry: State<'_, Registry>) -> Result<Vec<InputSummary>, AppEr
     let paths = rfd::FileDialog::new()
         .add_filter(
             "Documents",
-            &["txt", "md", "markdown", "csv", "tsv", "json", "xml"],
+            &["txt", "md", "markdown", "csv", "tsv", "json", "xml", "pdf"],
         )
         .pick_files()
         .unwrap_or_default();
