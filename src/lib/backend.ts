@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type InputFormat = "text" | "markdown";
+export type InputFormat = "text" | "markdown" | "csv" | "tsv" | "json" | "xml";
 
 export interface Capabilities {
   protocolVersion: 1;

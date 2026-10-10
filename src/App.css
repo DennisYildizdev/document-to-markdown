@@ -51,11 +51,22 @@ h1 { font-size: 17px; letter-spacing: -0.01em; }
 .preview-placeholder { height: 100%; min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #9ba5b5; }
 .preview-placeholder strong { color: #566176; font-size: 14px; }
 .preview-placeholder span { font-size: 12px; }
+.diagnostics { display: grid; gap: 7px; padding: 14px 18px 0; }
+.diagnostic { display: flex; align-items: baseline; gap: 10px; padding: 9px 11px; border: 1px solid #dbe1ea; border-radius: 8px; background: #fff; font-size: 12px; }
+.diagnostic strong { color: #596579; font-size: 10px; letter-spacing: .04em; }
+.diagnostic span { color: #68748a; }
+.diagnostic.warning { border-color: #f0d69b; background: #fff9e9; }
+.diagnostic.warning strong { color: #956718; }
+.diagnostic.error { border-color: #ffc5cd; background: #fff0f2; }
+.diagnostic.error strong { color: #a22d3e; }
 .markdown-preview { max-width: 820px; padding: 32px 42px 60px; color: #263247; line-height: 1.65; }
 .markdown-preview h1, .markdown-preview h2, .markdown-preview h3 { margin: 1.2em 0 .45em; color: #172033; }
 .markdown-preview p { margin: .75em 0; }
 .markdown-preview code { border-radius: 4px; padding: 2px 5px; background: #edf0f5; }
 .markdown-preview pre { overflow: auto; padding: 14px; border-radius: 8px; background: #202738; color: #eef2ff; }
+.markdown-preview table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13px; }
+.markdown-preview th, .markdown-preview td { padding: 8px 10px; border: 1px solid #dce2eb; text-align: left; vertical-align: top; }
+.markdown-preview th { background: #f1f4f8; color: #33405a; }
 footer { height: 34px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; color: #838da0; background: #fff; border-top: 1px solid #dfe5ed; font-size: 10px; }
 
 @media (prefers-color-scheme: dark) {
@@ -66,4 +77,10 @@ footer { height: 34px; padding: 0 24px; display: flex; align-items: center; just
   .button { color: #d8deeb; background: #232a39; border-color: #384154; }
   .file-row:hover { background: #222938; }
   .file-row.selected { background: #28294a; border-color: #4d51a2; }
+  .diagnostic { background: #202735; border-color: #364054; }
+  .diagnostic span { color: #c0c8d8; }
+  .diagnostic.warning { background: #302a1d; border-color: #655329; }
+  .diagnostic.error { background: #321f27; border-color: #693442; }
+  .markdown-preview th { color: #e0e6f1; background: #242b39; }
+  .markdown-preview th, .markdown-preview td { border-color: #364054; }
 }

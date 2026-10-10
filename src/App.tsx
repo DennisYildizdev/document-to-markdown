@@ -119,7 +119,7 @@ function App({ backend = tauriBackend }: AppProps) {
             <button className="empty-state" type="button" onClick={addFiles}>
               <FilePlus2 size={26} />
               <strong>Add documents</strong>
-              <span>TXT and Markdown are available in this first working slice.</span>
+              <span>TXT, Markdown, CSV, TSV, JSON, and XML are available locally.</span>
             </button>
           ) : (
             <ul className="file-list">
@@ -149,9 +149,21 @@ function App({ backend = tauriBackend }: AppProps) {
           </div>
           <div className="preview-body">
             {result ? (
-              <article className="markdown-preview">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{result.markdown}</ReactMarkdown>
-              </article>
+              <>
+                {result.diagnostics.length > 0 && (
+                  <aside className="diagnostics" aria-label="Conversion diagnostics">
+                    {result.diagnostics.map((diagnostic) => (
+                      <div className={`diagnostic ${diagnostic.severity}`} key={diagnostic.code}>
+                        <strong>{diagnostic.code}</strong>
+                        <span>{diagnostic.message}</span>
+                      </div>
+                    ))}
+                  </aside>
+                )}
+                <article className="markdown-preview">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{result.markdown}</ReactMarkdown>
+                </article>
+              </>
             ) : (
               <div className="preview-placeholder">
                 <FileText size={34} />

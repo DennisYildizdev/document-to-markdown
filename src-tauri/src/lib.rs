@@ -217,9 +217,13 @@ fn detect_format(path: &Path) -> Result<InputFormat, AppError> {
     match extension.as_deref() {
         Some("txt") => Ok(InputFormat::Text),
         Some("md" | "markdown") => Ok(InputFormat::Markdown),
+        Some("csv") => Ok(InputFormat::Csv),
+        Some("tsv") => Ok(InputFormat::Tsv),
+        Some("json") => Ok(InputFormat::Json),
+        Some("xml") => Ok(InputFormat::Xml),
         _ => Err(AppError::new(
             "UNSUPPORTED_FORMAT",
-            "Only TXT and Markdown are enabled in the current implementation slice.",
+            "The selected file extension is not enabled in the current implementation slice.",
             false,
         )),
     }
@@ -229,6 +233,10 @@ const fn format_name(format: InputFormat) -> &'static str {
     match format {
         InputFormat::Text => "text",
         InputFormat::Markdown => "markdown",
+        InputFormat::Csv => "csv",
+        InputFormat::Tsv => "tsv",
+        InputFormat::Json => "json",
+        InputFormat::Xml => "xml",
     }
 }
 
@@ -244,14 +252,17 @@ fn internal_error(message: &str) -> AppError {
 fn get_capabilities() -> Capabilities {
     Capabilities {
         protocol_version: 1,
-        formats: vec!["txt", "md", "markdown"],
+        formats: vec!["txt", "md", "markdown", "csv", "tsv", "json", "xml"],
     }
 }
 
 #[tauri::command]
 fn pick_inputs(registry: State<'_, Registry>) -> Result<Vec<InputSummary>, AppError> {
     let paths = rfd::FileDialog::new()
-        .add_filter("Documents", &["txt", "md", "markdown"])
+        .add_filter(
+            "Documents",
+            &["txt", "md", "markdown", "csv", "tsv", "json", "xml"],
+        )
         .pick_files()
         .unwrap_or_default();
     registry.register_paths(paths)
