@@ -145,3 +145,59 @@ fn registry_reports_scanned_pdf_as_ocr_required_instead_of_empty_export() {
 
     assert_eq!(error.code, "OCR_REQUIRED");
 }
+
+#[test]
+fn registry_exports_to_the_chosen_file_and_adds_md_extension() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let source = directory.path().join("notes.txt");
+    fs::write(&source, "Hello").expect("fixture");
+    let registry = Registry::default();
+    let inputs = registry
+        .register_paths(vec![source])
+        .expect("register input");
+    let result = registry.convert(&inputs[0].input_id).expect("convert");
+
+    assert_eq!(
+        registry
+            .suggested_file_name(&result.result_id)
+            .expect("name"),
+        "notes.md"
+    );
+
+    let exported = registry
+        .export_to_file(&result.result_id, &directory.path().join("Summary"))
+        .expect("export");
+    assert_eq!(exported, directory.path().join("Summary.md"));
+    assert_eq!(fs::read_to_string(&exported).expect("read"), "Hello\n");
+
+    // The Save dialog already confirmed the replacement.
+    fs::write(&exported, "old").expect("existing file");
+    registry
+        .export_to_file(&result.result_id, &exported)
+        .expect("replace");
+    assert_eq!(fs::read_to_string(&exported).expect("read"), "Hello\n");
+    assert!(!directory.path().join("Summary.md.partial").exists());
+}
+
+#[test]
+fn registry_exports_to_directory_without_overwriting() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let source = directory.path().join("notes.txt");
+    fs::write(&source, "Hello").expect("fixture");
+    fs::write(directory.path().join("notes.md"), "keep").expect("existing export");
+    let registry = Registry::default();
+    let inputs = registry
+        .register_paths(vec![source])
+        .expect("register input");
+    let result = registry.convert(&inputs[0].input_id).expect("convert");
+
+    let exported = registry
+        .export_to_directory(&result.result_id, directory.path())
+        .expect("export");
+
+    assert_eq!(exported, directory.path().join("notes (2).md"));
+    assert_eq!(
+        fs::read_to_string(directory.path().join("notes.md")).expect("read"),
+        "keep"
+    );
+}

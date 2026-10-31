@@ -631,9 +631,9 @@ The no-sidecar requirement means v1 cannot promise hard per-document process iso
 
 ### 4.4 Export integrity
 
-- The user chooses an output folder through a native dialog.
-- Default naming is `source-name.md`, then `source-name (2).md`, and so on.
-- v1 never overwrites an existing file.
+- The user picks the target file in a native Save dialog parented to the main window; the suggested name is `source-name.md` and a missing `.md` extension is added.
+- Folder (batch) export uses `source-name.md`, then `source-name (2).md`, and so on.
+- An existing file is replaced only after the Save dialog asked the user; batch export never overwrites.
 - Sanitize Windows reserved names, trailing dots/spaces, and invalid filename characters.
 - Handle collisions case-insensitively.
 - Stage the output on the destination volume.
@@ -834,7 +834,7 @@ The release is complete only when all conditions hold:
 - [ ] Preview cannot execute source content or load document-linked resources.
 - [ ] Cancellation and progress reflect actual worker state.
 - [ ] Failed exports are retryable without reconversion.
-- [ ] Export never silently truncates output or overwrites existing files.
+- [ ] Export never silently truncates output or overwrites existing files without confirmation.
 - [ ] Tests cover Turkish content and Windows-specific paths.
 - [ ] Dependency purity, security advisories, licenses, and notices are reviewed.
 - [ ] Signed installer, checksums, SBOM, and release notes are produced.

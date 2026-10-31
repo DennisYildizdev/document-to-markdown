@@ -48,6 +48,14 @@ struct Notice {
     shown_at: f64,
 }
 
+/// Native dialogs are opened at the end of the frame, parented to the window,
+/// so they stay in front of it and block it like a normal modal dialog.
+#[derive(Clone, Copy)]
+enum Dialog {
+    AddFiles,
+    Export,
+}
+
 pub struct App {
     registry: Arc<Registry>,
     items: Vec<Item>,
@@ -56,6 +64,7 @@ pub struct App {
     markdown_cache: CommonMarkCache,
     notice: Option<Notice>,
     last_export_dir: Option<PathBuf>,
+    dialog: Option<Dialog>,
     jobs: mpsc::Sender<String>,
     done: mpsc::Receiver<Done>,
 }
@@ -88,6 +97,7 @@ impl App {
             markdown_cache: CommonMarkCache::default(),
             notice: None,
             last_export_dir: None,
+            dialog: None,
             jobs,
             done,
         };
@@ -130,8 +140,10 @@ impl App {
 
     // Actions
 
-    fn pick_files(&mut self, ctx: &egui::Context) {
+    fn pick_files(&mut self, ctx: &egui::Context, window: &eframe::Frame) {
         if let Some(paths) = rfd::FileDialog::new()
+            .set_parent(window)
+            .set_title("Add documents")
             .add_filter("Documents", SUPPORTED_EXTENSIONS)
             .pick_files()
         {
@@ -193,31 +205,39 @@ impl App {
         }
     }
 
-    fn export_selected(&mut self, ctx: &egui::Context) {
+    fn export_selected(&mut self, ctx: &egui::Context, window: &eframe::Frame) {
         let Some(result_id) = self
             .selected_result()
             .map(|result| result.result_id.clone())
         else {
             return;
         };
-        let mut dialog = rfd::FileDialog::new().set_title("Export Markdown to folder");
+        let file_name = self
+            .registry
+            .suggested_file_name(&result_id)
+            .unwrap_or_else(|_| "document.md".to_owned());
+        let mut dialog = rfd::FileDialog::new()
+            .set_parent(window)
+            .set_title("Export Markdown")
+            .set_file_name(file_name)
+            .add_filter("Markdown", &["md"]);
         if let Some(dir) = &self.last_export_dir {
             dialog = dialog.set_directory(dir);
         }
-        let Some(directory) = dialog.pick_folder() else {
+        let Some(target) = dialog.save_file() else {
             return;
         };
-        match self.registry.export_to_directory(&result_id, &directory) {
+        match self.registry.export_to_file(&result_id, &target) {
             Ok(path) => {
                 let name = path
                     .file_name()
                     .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-                self.notify(
-                    ctx,
-                    format!("Saved {name} to {}", directory.display()),
-                    false,
-                );
-                self.last_export_dir = Some(directory);
+                let folder = path.parent().map(PathBuf::from);
+                let where_ = folder
+                    .as_ref()
+                    .map_or_else(String::new, |dir| format!(" to {}", dir.display()));
+                self.notify(ctx, format!("Saved {name}{where_}"), false);
+                self.last_export_dir = folder;
             }
             Err(error) => self.notify(ctx, format!("Export failed. {}", error.message), true),
         }
@@ -306,13 +326,13 @@ impl App {
             )
         });
         if add {
-            self.pick_files(ctx);
+            self.dialog = Some(Dialog::AddFiles);
         }
         if convert {
             self.convert_all();
         }
         if export {
-            self.export_selected(ctx);
+            self.dialog = Some(Dialog::Export);
         }
         if up {
             self.move_selection(-1);
@@ -362,7 +382,7 @@ impl App {
                 .on_hover_text("Ctrl+O")
                 .clicked()
             {
-                self.pick_files(&ctx);
+                self.dialog = Some(Dialog::AddFiles);
             }
             let convert_label = if convertible > 1 {
                 format!("Convert {convertible}")
@@ -380,7 +400,7 @@ impl App {
                     .on_hover_text("Save the selected result as .md (Ctrl+S)")
                     .clicked()
                 {
-                    self.export_selected(&ctx);
+                    self.dialog = Some(Dialog::Export);
                 }
                 if button(ui, palette, "Copy", false, ready)
                     .on_hover_text("Copy the selected Markdown")
@@ -504,9 +524,8 @@ impl App {
             empty_state(ui, palette, self.items.is_empty());
             if self.items.is_empty() {
                 ui.add_space(24.0);
-                let ctx = ui.ctx().clone();
                 if button(ui, palette, "Add files…", true, true).clicked() {
-                    self.pick_files(&ctx);
+                    self.dialog = Some(Dialog::AddFiles);
                 }
             }
             return;
@@ -658,7 +677,7 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.receive_results();
         self.handle_input(&ctx);
@@ -704,6 +723,12 @@ impl eframe::App for App {
             .show(ui, |ui| self.content(ui, &palette));
 
         drop_overlay(&ctx, &palette);
+
+        match self.dialog.take() {
+            Some(Dialog::AddFiles) => self.pick_files(&ctx, frame),
+            Some(Dialog::Export) => self.export_selected(&ctx, frame),
+            None => {}
+        }
     }
 }
 

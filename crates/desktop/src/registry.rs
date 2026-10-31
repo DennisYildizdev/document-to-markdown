@@ -174,42 +174,93 @@ impl Registry {
         })
     }
 
+    /// `report.pdf` → `report.md`.
+    pub fn suggested_file_name(&self, result_id: &str) -> Result<String, AppError> {
+        let result = self.result(result_id)?;
+        Ok(format!("{}.md", source_stem(&result.source_name)))
+    }
+
+    /// Exports into `directory` without overwriting: `name.md`, `name (2).md`, ...
     pub fn export_to_directory(
         &self,
         result_id: &str,
         directory: &Path,
     ) -> Result<PathBuf, AppError> {
-        let result = self
-            .results
-            .lock()
-            .map_err(|_| internal_error("result registry is unavailable"))?
-            .get(result_id)
-            .cloned()
-            .ok_or_else(|| AppError::new("ACCESS_DENIED", "Unknown result ticket.", false))?;
-        let stem = Path::new(&result.source_name)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("document");
+        let result = self.result(result_id)?;
+        let stem = source_stem(&result.source_name);
         let mut candidate = directory.join(format!("{stem}.md"));
         let mut suffix = 2;
         while candidate.exists() {
             candidate = directory.join(format!("{stem} ({suffix}).md"));
             suffix += 1;
         }
-        fs::write(&candidate, result.markdown.as_bytes())
-            .map_err(|error| access_error("cannot export Markdown", error))?;
-        let written = fs::metadata(&candidate)
-            .map_err(|error| access_error("cannot verify exported Markdown", error))?
-            .len();
-        if written != result.markdown.len() as u64 {
-            return Err(AppError::new(
-                "EXPORT_FAILED",
-                "Export verification failed.",
-                true,
-            ));
-        }
+        write_verified(&candidate, &result.markdown)?;
         Ok(candidate)
     }
+
+    /// Exports to a path the user picked in a native Save dialog. The dialog
+    /// has already asked before replacing an existing file. A `.md` extension
+    /// is added when missing.
+    pub fn export_to_file(&self, result_id: &str, path: &Path) -> Result<PathBuf, AppError> {
+        let result = self.result(result_id)?;
+        let mut path = path.to_path_buf();
+        let has_md = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+        if !has_md {
+            let mut name = path.file_name().unwrap_or_default().to_os_string();
+            name.push(".md");
+            path.set_file_name(name);
+        }
+
+        // Write next to the target and rename, so a failed write never
+        // leaves a truncated Markdown file behind.
+        let mut staging_name = path.file_name().unwrap_or_default().to_os_string();
+        staging_name.push(".partial");
+        let staging = path.with_file_name(staging_name);
+        if let Err(error) = write_verified(&staging, &result.markdown) {
+            let _ = fs::remove_file(&staging);
+            return Err(error);
+        }
+        if let Err(error) = fs::rename(&staging, &path) {
+            let _ = fs::remove_file(&staging);
+            return Err(access_error("cannot export Markdown", error));
+        }
+        Ok(path)
+    }
+
+    fn result(&self, result_id: &str) -> Result<ResultRecord, AppError> {
+        self.results
+            .lock()
+            .map_err(|_| internal_error("result registry is unavailable"))?
+            .get(result_id)
+            .cloned()
+            .ok_or_else(|| AppError::new("ACCESS_DENIED", "Unknown result ticket.", false))
+    }
+}
+
+fn source_stem(source_name: &str) -> &str {
+    Path::new(source_name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("document")
+}
+
+fn write_verified(path: &Path, markdown: &str) -> Result<(), AppError> {
+    fs::write(path, markdown.as_bytes())
+        .map_err(|error| access_error("cannot export Markdown", error))?;
+    let written = fs::metadata(path)
+        .map_err(|error| access_error("cannot verify exported Markdown", error))?
+        .len();
+    if written != markdown.len() as u64 {
+        return Err(AppError::new(
+            "EXPORT_FAILED",
+            "Export verification failed.",
+            true,
+        ));
+    }
+    Ok(())
 }
 
 fn detect_format(path: &Path) -> Result<InputFormat, AppError> {
