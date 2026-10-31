@@ -1,0 +1,23 @@
+[package]
+name = "document-to-markdown"
+description = "Local document-to-Markdown desktop application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "document-to-markdown"
+path = "src/main.rs"
+
+[dependencies]
+conversion-core = { path = "../conversion-core" }
+# `links` is left out on purpose: clicking a link in the preview must not open a browser.
+eframe = { version = "=0.37.0", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "glow"] }
+# No `load-images`/`fetch`: the preview never loads local or remote images.
+egui_commonmark = { version = "=0.26.0", default-features = false, features = ["pulldown_cmark"] }
+rfd = "=0.15.4"
+
+[dev-dependencies]
+lopdf = { version = "=0.42.0", default-features = false }
+tempfile = "=3.23.0"

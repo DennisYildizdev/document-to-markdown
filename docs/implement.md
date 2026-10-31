@@ -1,10 +1,10 @@
 # implement.md — Rust Document-to-Markdown Desktop Application
 
 **Platform:** Windows 11 x64  
-**Stack:** Tauri 2, Rust, TypeScript, Tailwind CSS, shadcn/ui  
+**Stack:** Rust only — conversion core plus an egui/eframe native GUI  
 **Selected release scope:** Core documents first; OCR as an optional later extension.
 
-**Delivery status:** This is the complete proposed document content. Plan mode prohibits writing files, so a downloadable `implement.md` has not been created. When file creation is enabled, save this document as UTF-8 to `outputs/implement.md` and provide a direct download link.
+**Status:** Living specification. The GUI moved from Tauri 2 + React to egui in v0.2.0; sections below describe the egui architecture.
 
 ## 1. Product requirements and release scope
 
@@ -22,12 +22,12 @@ A user must be able to install the application, add files, convert them, inspect
 - No Python source, interpreter, embedded runtime, pip, virtual environment, Python service, or Python sidecar.
 - No conversion subprocesses, including Rust converter executables.
 - No Pandoc, LibreOffice automation, Microsoft Office automation, Tesseract executable, PDFium, Poppler, MuPDF, or Ghostscript conversion dependency.
-- No JavaScript document-conversion fallback. TypeScript handles presentation and interaction.
+- No JavaScript, WebView, or browser engine anywhere in the application. The GUI is native Rust (egui).
 - No document uploads, cloud conversion, account requirement, telemetry, or automatic network retrieval.
 - Conversion must work offline immediately after installation.
 - Application development, CI, packaging, and supported maintenance scripts must not require Python.
 
-“Rust-only conversion” also excludes Rust wrappers around native C/C++ conversion engines. Windows APIs, the MSVC toolchain, and Tauri’s WebView2 GUI dependency are allowed platform infrastructure. Node.js is a development dependency, not a shipped application service.
+“Rust-only conversion” also excludes Rust wrappers around native C/C++ conversion engines. Windows APIs, the MSVC toolchain, and the OpenGL driver used by eframe are allowed platform infrastructure. Building requires only the Rust toolchain and MSVC; there is no Node.js or frontend build step.
 
 ### 1.3 First-release format contract
 
@@ -86,9 +86,9 @@ Excluded from this implementation program: legacy `.doc`/`.ppt`, email archives,
 
 ```mermaid
 flowchart TD
-    A[React and TypeScript GUI] -->|Typed commands and channels| B[Tauri command boundary]
+    A[egui GUI on the main thread] -->|Rust method calls| B[Application state]
     B --> C[Input and destination ticket registry]
-    B --> D[Job manager]
+    B -->|Job channel| D[Job manager]
     D --> E[Bounded Rust workers]
     E --> F[Detection and resource checks]
     F --> G[Format adapters]
@@ -102,29 +102,28 @@ flowchart TD
 
 Responsibilities:
 
-- **Frontend:** queue presentation, options, progress, preview, accessibility, error recovery, and export interaction.
-- **Tauri boundary:** command authorization, request validation, native dialogs, OS integration, and transport.
+- **GUI (egui):** queue presentation, options, progress, preview, accessibility, error recovery, and export interaction. Never blocks on conversion.
+- **Application state:** input tickets, request validation, native dialogs (`rfd`), drag and drop, and OS integration.
 - **Conversion core:** format detection, parsing, document representation, Markdown emission, warnings, and limits.
 - **Job manager:** scheduling, cancellation, lifecycle state, resource accounting, and progress snapshots.
 - **Storage services:** temporary results, safe exports, settings, and cleanup.
 
-The conversion core must compile and run tests without linking Tauri or opening a window.
+The conversion core must compile and run tests without linking egui or opening a window.
 
 Use ordinary Rust libraries compiled into the application. No localhost HTTP server and no converter process are required.
 
-### 2.2 Frontend decisions
+### 2.2 GUI decisions
 
 Use:
 
-- React with strict TypeScript.
-- Vite for development and frontend builds.
-- Tailwind CSS through the Vite integration.
-- shadcn/ui components stored in the application source.
-- React context/reducers for the initial application state.
-- `react-markdown` with `remark-gfm` for presentation only.
-- Vitest and React Testing Library for component tests.
+- [`eframe`](https://docs.rs/eframe) / [`egui`](https://docs.rs/egui) with the `glow` (OpenGL) renderer, `accesskit` for screen readers, and `clipboard`. The `links` feature stays disabled so the GUI cannot open URLs.
+- [`egui_commonmark`](https://docs.rs/egui_commonmark) with default features off (`pulldown_cmark` only): no image loading, no network fetch.
+- [`rfd`](https://docs.rs/rfd) for native file and folder dialogs.
+- Plain Rust structs for application state; one `std::sync::mpsc` job channel to a worker thread.
+- System fonts (Segoe UI, Cascadia Mono) read at runtime, falling back to egui's bundled fonts. No fonts are redistributed.
+- Rust unit and integration tests for state and registry behavior.
 
-The current [shadcn/ui Vite instructions](https://ui.shadcn.com/docs/installation/vite) document the Tailwind Vite integration. Pin the tested package versions and generated component source instead of rerunning an unpinned generator during production builds.
+Pin exact crate versions in `Cargo.toml`; egui's API changes between minor versions.
 
 ### 2.3 Rust dependency decisions and validation gates
 
@@ -143,7 +142,7 @@ The following are selected implementation candidates, not claims that integratio
 | PDF text | `pdf-extract`, with compatible `lopdf` access where needed | Fonts, CMaps, page extraction, text order, encrypted input, allocation behavior |
 | Markdown parsing/normalization | `pulldown-cmark` and an application-owned writer | GFM tables, escaping, round-trip behavior |
 | Scheduling | Tokio, semaphore, cooperative cancellation | Blocking work never runs on the UI thread |
-| Serialization/errors | `serde`, `thiserror` | Stable error codes and IPC compatibility |
+| Serialization/errors | `serde`, `thiserror` | Stable error codes |
 | Temporary storage | `tempfile` plus Windows-aware export handling | Restricted location, cleanup, collision safety |
 
 Supporting primary documentation:
@@ -180,29 +179,19 @@ Cargo feature unification must be reviewed across all dependencies and duplicate
 
 ### 2.5 Module structure
 
-The following is the proposed repository layout, not an existing implementation:
+Target layout. `crates/conversion-core` and `crates/desktop` exist today; the rest is planned:
 
 ```text
-app/
-  src/
-    app/                  # Application shell and state
-    features/
-      intake/             # Add files/folders and queue
-      conversion/         # Options, progress, cancellation
-      preview/            # Rendered and source views
-      export/             # Destination and export results
-      settings/
-    components/ui/        # shadcn/ui source
-    lib/ipc/              # Typed transport and event reconciliation
-
-  src-tauri/
-    src/
-      commands/           # Narrow Tauri handlers
-      state/              # Registries and managed state
-      platform/           # Windows dialogs and integration
-    capabilities/
-
   crates/
+    desktop/              # egui application (binary + lib for tests)
+      src/
+        main.rs           # Window and eframe setup
+        app.rs            # Layout: toolbar, queue, preview, shortcuts
+        theme.rs          # Colors, type scale, fonts
+        registry.rs       # Input/result tickets and export
+        intake/           # (planned) folders, duplicate detection
+        settings/         # (planned) persisted preferences
+      assets/             # Window icon
     conversion-core/
       src/
         detect/
@@ -224,7 +213,6 @@ app/
         progress/
         result_store/
         export/
-    ipc-contract/
     xtask/                # Rust developer and verification tasks
 
   tests/
@@ -238,11 +226,11 @@ app/
 
 Dependency direction:
 
-- `conversion-core` has no frontend, Tauri, or platform-dialog dependency.
+- `conversion-core` has no GUI, egui, or platform-dialog dependency.
 - `conversion-jobs` depends on the core.
-- `src-tauri` depends on the jobs and IPC crates.
-- Frontend imports only the documented TypeScript transport surface.
-- Adapter-specific library types never cross IPC.
+- `desktop` depends on the core (and later the jobs crate).
+- GUI code talks to conversion only through the registry/job API, never to adapters directly.
+- Adapter-specific library types never reach GUI code.
 
 ### 2.6 Internal document representation
 
@@ -410,7 +398,7 @@ Do not treat extracting a PDF’s embedded images as general page rendering: ima
 
 If rasterizer validation fails, retain image OCR only and keep scanned-PDF OCR unavailable. Do not introduce a native fallback.
 
-## 3. GUI, IPC contracts, and job lifecycle
+## 3. GUI, application API, and job lifecycle
 
 ### 3.1 Main workflow
 
@@ -460,134 +448,95 @@ Accessibility:
 - English UI initially; strings organized for later localization.
 - Test Turkish filenames and text regardless of UI language.
 
-### 3.3 IPC design
+### 3.3 Application API
 
-Use Tauri commands for operations and a typed channel for job updates. Tauri documents both command invocation and Rust-to-frontend communication. [Commands](https://v2.tauri.app/develop/calling-rust/), [frontend communication](https://v2.tauri.app/develop/calling-frontend/)
+The GUI and the conversion back end live in one Rust process. The boundary is a Rust API on the application state, not an IPC protocol, but it keeps the same discipline: GUI code works with opaque tickets and never with raw paths it did not obtain from a native dialog, a native drop event, or the command line.
 
-Use camelCase JSON fields, string IDs, tagged unions, and structured errors.
-
-The renderer must not receive a general “read any path,” “write any path,” or “run command” API.
-
-| Command | Purpose |
+| Operation | Purpose |
 |---|---|
-| `get_capabilities` | Return protocol version, available formats, limits, and OCR availability |
-| `pick_inputs` | Open native file/folder picker and register selected inputs |
-| `list_inputs` | Return registered input summaries, including native-drop additions |
+| `register_paths` | Validate and register paths from the file dialog, drag and drop, or command-line arguments; return input summaries |
 | `remove_inputs` | Release unused input tickets |
-| `start_batch` | Validate requests and create a batch |
-| `watch_batch` | Attach a progress channel and return an authoritative snapshot |
-| `get_batch` | Recover current state after reload or missed updates |
+| `start_batch` | Validate requests and send jobs to the worker |
+| `poll_updates` | Drain finished/progress messages from the worker channel each frame |
 | `cancel_jobs` | Request cancellation for specified jobs or an entire batch |
-| `read_result` | Return a bounded Markdown slice and diagnostics |
-| `pick_output_directory` | Register an authorized export destination |
-| `export_results` | Export completed results with per-file outcomes |
+| `read_result` | Return a bounded Markdown slice and diagnostics for preview |
+| `export_to_directory` | Export a completed result to a folder chosen in a native dialog |
 | `copy_result` | Copy bounded plain Markdown text to the clipboard |
-| `reveal_export` | Reveal a previously exported file through a validated backend record |
+| `reveal_export` | Reveal a previously exported file through a validated record |
 | `discard_results` | Remove explicitly discarded temporary results |
-| `get_settings`, `update_settings` | Read/write validated application preferences |
+| `load_settings`, `save_settings` | Read/write validated application preferences |
 
-Native drop events are processed by the Rust-side integration. A frontend-supplied path must never create an input ticket by itself.
+The worker thread calls `egui::Context::request_repaint` after each message so the window updates without polling.
 
 ### 3.4 Contract sketch
 
-```ts
-type InputId = string;
-type BatchId = string;
-type JobId = string;
-type ResultId = string;
-type DestinationId = string;
+```rust
+pub struct InputId(String);
+pub struct JobId(String);
+pub struct ResultId(String);
 
-type JobState =
-  | "queued"
-  | "validating"
-  | "extracting"
-  | "normalizing"
-  | "rendering"
-  | "storing"
-  | "cancelling"
-  | "succeeded"
-  | "succeededWithWarnings"
-  | "failed"
-  | "cancelled";
-
-interface ConversionOptions {
-  textEncoding: "auto" | "utf-8" | "windows-1252" | "windows-1254";
-  delimiter: "extensionDefault" | "comma" | "semicolon" | "tab";
-  firstRowIsHeader: boolean;
-  includeHiddenSheets: boolean;
+pub enum JobState {
+    Queued,
+    Validating,
+    Extracting,
+    Normalizing,
+    Rendering,
+    Storing,
+    Cancelling,
+    Succeeded,
+    SucceededWithWarnings,
+    Failed,
+    Cancelled,
 }
 
-interface StartBatchRequest {
-  protocolVersion: 1;
-  requestId: string;
-  jobs: Array<{
-    inputId: InputId;
-    options: ConversionOptions;
-  }>;
+pub enum TextEncoding { Auto, Utf8, Windows1252, Windows1254 }
+pub enum Delimiter { ExtensionDefault, Comma, Semicolon, Tab }
+
+pub struct ConversionOptions {
+    pub text_encoding: TextEncoding,
+    pub delimiter: Delimiter,
+    pub first_row_is_header: bool,
+    pub include_hidden_sheets: bool,
 }
 
-interface Diagnostic {
-  code: string;
-  severity: "info" | "warning" | "error";
-  message: string;
-  location?: {
-    page?: number;
-    sheet?: string;
-    cell?: string;
-    paragraph?: number;
-  };
+pub struct Diagnostic {
+    pub code: String,
+    pub severity: Severity, // Info | Warning | Error
+    pub message: String,
+    pub location: Option<SourceLocation>, // page, sheet, cell, paragraph
 }
 
-interface Progress {
-  stage: string;
-  completedUnits: number | null;
-  totalUnits: number | null;
-  unit: "bytes" | "pages" | "rows" | "parts" | null;
+pub struct Progress {
+    pub stage: &'static str,
+    pub completed_units: Option<u64>,
+    pub total_units: Option<u64>,
+    pub unit: Option<Unit>, // Bytes | Pages | Rows | Parts
 }
 
-interface JobSnapshot {
-  jobId: JobId;
-  inputId: InputId;
-  state: JobState;
-  progress: Progress;
-  resultId: ResultId | null;
-  diagnostics: Diagnostic[];
+pub struct JobUpdate {
+    pub job_id: JobId,
+    pub input_id: InputId,
+    pub state: JobState,
+    pub progress: Progress,
+    pub result_id: Option<ResultId>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
-interface BatchSnapshot {
-  protocolVersion: 1;
-  batchId: BatchId;
-  sequence: number;
-  jobs: JobSnapshot[];
-}
-
-interface JobUpdate {
-  protocolVersion: 1;
-  batchId: BatchId;
-  sequence: number;
-  job: JobSnapshot;
-}
-
-interface AppError {
-  code: string;
-  message: string;
-  retryable: boolean;
-  diagnosticId: string;
+pub struct AppError {
+    pub code: &'static str,
+    pub message: String,
+    pub retryable: bool,
 }
 ```
 
 Contract rules:
 
-- Rust types are authoritative; use generated TypeScript DTOs through an audited Rust tool such as `ts-rs`.
-- Add round-trip contract tests for every tagged union and representative error.
 - Validate all options in Rust, including options irrelevant to a selected format.
-- Do not expose stack traces or raw document text in IPC errors.
-- Repeated `requestId` values with identical content return the existing batch; conflicting reuse is rejected.
-- Allocate monotonic sequence numbers in the backend.
-- Register the watcher and capture its initial snapshot atomically.
-- Ignore stale frontend updates and recover through `get_batch`.
-- Channel disconnection does not cancel conversion.
+- Do not show stack traces or raw document text in error messages.
+- Every job update carries its job ID; the GUI ignores updates for jobs it no longer tracks.
+- Closing the GUI's receiver does not corrupt in-flight work; the worker stops at its next checkpoint.
 - Progress messages contain metadata, not repeated document content.
+- No conversion work runs on the GUI thread.
 
 Initial error codes include:
 
@@ -622,22 +571,19 @@ Catch recoverable Rust panics at the job boundary where appropriate, but do not 
 
 Treat documents, filenames, links, archive entries, and parser output as untrusted.
 
-Tauri capabilities control frontend access but do not sandbox Rust conversion code. Registered application commands require explicit attention: Tauri documents that custom commands are available to application windows by default unless command permissions are configured. Declare commands through `AppManifest::commands`, grant only required permissions to the main window, and validate access inside handlers. [Tauri capabilities](https://v2.tauri.app/security/capabilities/)
+The egui GUI has no web engine, so there is no script execution surface. Everything runs in one process, so the GUI is not a privilege boundary for Rust conversion code either; correctness of the registry and adapters is the boundary.
 
 Requirements:
 
-- One trusted bundled application window.
-- No remote frontend content, arbitrary navigation, or untrusted iframe.
-- No frontend shell, generic filesystem, HTTP, or process permission.
-- No dynamic JavaScript execution.
-- Production CSP allows required bundled assets and Tauri IPC endpoints only.
-- No wildcard network destinations.
-- Preview renders Markdown through safe React components, with raw HTML disabled.
-- Image components display placeholders and never fetch remote or local URLs.
-- Links do not navigate the WebView. Provide copying of validated destinations in v1.
+- One native application window; no embedded browser or remote content.
+- No HTTP client in the dependency graph; no wildcard network destinations.
+- Preview renders Markdown with `egui_commonmark` built without `load-images`, `fetch`, or `svg`.
+- Raw HTML in Markdown is never interpreted: a custom HTML hook shows it as literal text (PDF page markers become a "Page N" label).
+- Images are never loaded from remote or local URLs.
+- eframe is built without the `links` feature, so clicking a link cannot open a browser. Provide copying of validated destinations in v1.
 - Clipboard operations require an explicit user action.
 
-`react-markdown` is a suitable presentation component, but custom plugins and components must preserve its security assumptions. [react-markdown documentation](https://github.com/remarkjs/react-markdown)
+Any new egui widget crate must be checked for image loaders, URL handlers, and network features before it is added.
 
 ### 4.2 Filesystem and container handling
 
@@ -715,25 +661,22 @@ The no-sidecar requirement means v1 cannot promise hard per-document process iso
 
 Primary delivery:
 
-- Signed Windows x64 NSIS installer.
-- Standard-user installation where supported by the tested installer configuration.
-- Bundled frontend assets.
-- No console window during normal use.
-- No conversion sidecar or runtime download.
-- Start Menu entry and normal uninstall support.
+- A single signed, portable `document-to-markdown.exe` (Windows x64), published on GitHub Releases.
+- Optional later: an NSIS or MSI installer wrapping the same executable, with Start Menu entry and normal uninstall support.
+- No console window during normal use (`windows_subsystem = "windows"` in release).
+- No WebView, runtime, conversion sidecar, or runtime download; works offline immediately.
+- The window icon is embedded in the binary.
 
-Use Tauri’s WebView2 `offlineInstaller` option so installation can succeed without an internet connection. WebView2 remains a GUI platform dependency and increases package size. Tauri also supports MSI packaging; MSI is deferred unless enterprise deployment requires it. [Windows installer documentation](https://v2.tauri.app/distribute/windows-installer/)
-
-Build on Windows using the MSVC target. Node/package-manager tooling, Rust, Windows SDK, and installer tools are build requirements only.
+Build on Windows using the MSVC target with `cargo build --release -p document-to-markdown`. Rust, the Windows SDK, and (later) installer tools are build requirements only.
 
 Additional requirements:
 
-- Pin the Rust toolchain, package manager, Cargo lockfile, and frontend lockfile.
+- Pin the Rust toolchain and the Cargo lockfile.
 - Record dependency and compiler versions in release metadata.
 - Authenticode-sign and timestamp release executables/installers.
 - Keep signing credentials in protected release infrastructure.
 - Publish installer checksums, release notes, notices, and an SBOM.
-- Do not enable the updater plugin in v1.
+- Do not add an auto-updater in v1.
 - Test upgrades without deleting exported documents.
 - Uninstall removes installed binaries while preserving user exports.
 - Windows ARM64 and Windows 10 compatibility are outside the initial release claim.
@@ -758,7 +701,7 @@ Default dependency policy:
 
 - Accept reviewed permissive licenses with required notices.
 - Block unknown, incompatible, or restrictive dependencies pending explicit review.
-- Run Rust license/advisory checks and a frontend dependency audit.
+- Run Rust license and advisory checks (`cargo deny`, `cargo audit`).
 - Include `THIRD_PARTY_NOTICES` in the installer.
 - Use original branding; do not imply Microsoft affiliation.
 - Do not copy MarkItDown implementation code as part of this plan.
@@ -770,7 +713,7 @@ Default dependency policy:
 Documentation and source-manifest review confirms:
 
 - MarkItDown’s purpose and broader format range.
-- Tauri 2 commands, channels, capability behavior, and Windows packaging options.
+- egui/eframe native rendering, feature flags (`links`, image loaders), and single-executable delivery on Windows.
 - Rust candidate libraries for the proposed extraction pipeline.
 - A documented DOCX reading API in `docx-rs`.
 - Rust OCR inference candidates and upstream model artifacts.
@@ -792,7 +735,7 @@ Repository `main` manifests are moving targets and may describe unreleased versi
 - Spreadsheet coordinate mapping and formula diagnostics.
 - Cancellation state transitions.
 - Resource counters and destination filename selection.
-- IPC serialization and error mapping.
+- Error code mapping and job update ordering.
 
 **Golden conversion tests**
 
@@ -819,7 +762,7 @@ Use exact golden comparisons for deterministic supported structures. For PDFs, c
 - Renamed macro-enabled Office files.
 - Windows device/ADS paths, junctions, Unicode names, and destination races.
 - Disk-full, access-denied, deleted input, and input mutation.
-- Frontend attempts to invoke unauthorized commands or forge tickets.
+- Unknown or stale input/result tickets are rejected by the registry.
 
 **GUI tests**
 
@@ -831,7 +774,7 @@ Use exact golden comparisons for deterministic supported structures. For PDFs, c
 - Retry export after disk or permission failure.
 - Dark/light themes and display scaling.
 
-Use frontend tests for component behavior and Tauri WebDriver integration on Windows for real IPC/application flows. Tauri documents Windows WebDriver support; native dialogs and drag/drop also require manual packaged-app checks. [Tauri WebDriver](https://v2.tauri.app/develop/tests/webdriver/)
+Test application state and registry behavior with Rust tests. Use `egui_kittest` for widget-level GUI tests where useful; native dialogs and drag and drop also require manual checks of the release executable.
 
 **Packaging and offline tests**
 
@@ -840,7 +783,7 @@ On a clean Windows VM:
 - No Python, pip, Node.js, Rust, Office, or converter tools installed.
 - Network disabled.
 - Install, launch, convert every supported format, export, upgrade, and uninstall.
-- Repeat with WebView2 absent to verify the offline prerequisite path.
+- Confirm the executable starts on a machine with only the default Windows graphics driver.
 - Monitor conversion-time child processes and application network activity.
 - Inspect payloads and loaded modules for prohibited dependencies.
 
@@ -866,7 +809,7 @@ Record per-format median and p95 conversion times. Establish throughput budgets 
 | Milestone | Work | Exit gate |
 |---|---|---|
 | M0 — Feasibility and dependency lock | Resolve stable versions; inspect features/licenses; spike DOCX, XLSX, PDF; audit allocations | All mandatory adapters compile on Windows without Python/native conversion engines; corpus risks documented |
-| M1 — GUI and contracts | Tauri shell, React layout, tickets, queue, typed IPC, job snapshots | GUI-driven text conversion, preview, cancellation, and export work end to end |
+| M1 — GUI and contracts | egui shell and layout, tickets, queue, worker channel, job snapshots | GUI-driven text conversion, preview, cancellation, and export work end to end |
 | M2 — Core text formats | TXT/Markdown, CSV/TSV, JSON/XML, HTML, shared writer | Golden corpus passes; unsafe preview content cannot execute or fetch resources |
 | M3 — Office and PDF | DOCX subset, XLSX values, PDF text, diagnostics | Required fidelity cases pass; omissions and unsupported inputs are accurately reported |
 | M4 — Hardening | Resource checks, malformed inputs, race handling, accessibility, recovery | Security regression suite and repeated batch tests pass |
@@ -908,7 +851,7 @@ The release is complete only when all conditions hold:
 
 **Application deliverables after implementation**
 
-- Tauri/React application source and Rust conversion crates.
+- egui application source and Rust conversion crates.
 - Locked build configuration and Python-free setup instructions.
 - Fixture corpus, golden outputs, and automated tests.
 - Format support and limitation documentation.

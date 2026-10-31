@@ -1,4 +1,4 @@
-use document_to_markdown_lib::Registry;
+use document_to_markdown::Registry;
 use std::fs;
 
 #[test]

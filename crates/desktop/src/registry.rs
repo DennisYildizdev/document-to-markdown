@@ -1,5 +1,4 @@
 use conversion_core::{Diagnostic, InputFormat, convert_bytes};
-use serde::Serialize;
 use std::{
     collections::HashMap,
     fs,
@@ -9,13 +8,11 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use tauri::State;
 
 const MAX_TEXT_INPUT_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_PDF_INPUT_BYTES: u64 = 100 * 1024 * 1024;
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct InputSummary {
     pub input_id: String,
     pub name: String,
@@ -23,23 +20,18 @@ pub struct InputSummary {
     pub size: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Capabilities {
-    pub protocol_version: u8,
-    pub formats: Vec<&'static str>,
-}
+/// Extensions accepted by the file dialog and by drag and drop.
+pub const SUPPORTED_EXTENSIONS: &[&str] =
+    &["txt", "md", "markdown", "csv", "tsv", "json", "xml", "pdf"];
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct ConversionResult {
     pub result_id: String,
     pub markdown: String,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct AppError {
     pub code: &'static str,
     pub message: String,
@@ -53,6 +45,12 @@ impl AppError {
             message: message.into(),
             retryable,
         }
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
     }
 }
 
@@ -229,7 +227,7 @@ fn detect_format(path: &Path) -> Result<InputFormat, AppError> {
         Some("pdf") => Ok(InputFormat::Pdf),
         _ => Err(AppError::new(
             "UNSUPPORTED_FORMAT",
-            "The selected file extension is not enabled in the current implementation slice.",
+            "This file type is not supported yet.",
             false,
         )),
     }
@@ -265,58 +263,4 @@ fn access_error(context: &str, error: std::io::Error) -> AppError {
 
 fn internal_error(message: &str) -> AppError {
     AppError::new("INTERNAL_ERROR", message, true)
-}
-
-#[tauri::command]
-fn get_capabilities() -> Capabilities {
-    Capabilities {
-        protocol_version: 1,
-        formats: vec!["txt", "md", "markdown", "csv", "tsv", "json", "xml", "pdf"],
-    }
-}
-
-#[tauri::command]
-fn pick_inputs(registry: State<'_, Registry>) -> Result<Vec<InputSummary>, AppError> {
-    let paths = rfd::FileDialog::new()
-        .add_filter(
-            "Documents",
-            &["txt", "md", "markdown", "csv", "tsv", "json", "xml", "pdf"],
-        )
-        .pick_files()
-        .unwrap_or_default();
-    registry.register_paths(paths)
-}
-
-#[tauri::command]
-fn convert_input(
-    input_id: String,
-    registry: State<'_, Registry>,
-) -> Result<ConversionResult, AppError> {
-    registry.convert(&input_id)
-}
-
-#[tauri::command]
-fn export_result(
-    result_id: String,
-    registry: State<'_, Registry>,
-) -> Result<Option<String>, AppError> {
-    let Some(directory) = rfd::FileDialog::new().pick_folder() else {
-        return Ok(None);
-    };
-    let exported = registry.export_to_directory(&result_id, &directory)?;
-    Ok(Some(exported.to_string_lossy().into_owned()))
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .manage(Registry::default())
-        .invoke_handler(tauri::generate_handler![
-            get_capabilities,
-            pick_inputs,
-            convert_input,
-            export_result
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running Tauri application");
 }
